@@ -17,11 +17,25 @@ function required(name: string): string {
   return value;
 }
 
-export const auth = createNeonAuth({
-  baseUrl: required("NEON_AUTH_BASE_URL"),
-  cookies: {
-    secret: required("NEON_AUTH_COOKIE_SECRET"),
-  },
+/**
+ * Created lazily so that `npm run build` succeeds on a machine that has not
+ * configured secrets yet. The check still fires on the first real request.
+ */
+let instance: ReturnType<typeof createNeonAuth> | null = null;
+
+function neonAuth() {
+  if (!instance) {
+    instance = createNeonAuth({
+      baseUrl: required("NEON_AUTH_BASE_URL"),
+      cookies: { secret: required("NEON_AUTH_COOKIE_SECRET") },
+    });
+  }
+  return instance;
+}
+
+export const auth = new Proxy({} as ReturnType<typeof createNeonAuth>, {
+  get: (_target, property) =>
+    Reflect.get(neonAuth() as object, property) as unknown,
 });
 
 export type SessionUser = {
