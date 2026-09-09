@@ -1,13 +1,11 @@
 "use client";
 
 import * as React from "react";
-import { useRouter } from "next/navigation";
 import { LogOut } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
 import { Button } from "@/components/ui/button";
 
 export function SignOutButton() {
-  const router = useRouter();
   const [pending, setPending] = React.useState(false);
 
   return (
@@ -18,8 +16,8 @@ export function SignOutButton() {
       onClick={async () => {
         setPending(true);
         await authClient.signOut();
-        router.push("/sign-in");
-        router.refresh();
+        // Hard navigation so the server sees the cleared cookie immediately.
+        window.location.assign("/sign-in");
       }}
     >
       <LogOut />

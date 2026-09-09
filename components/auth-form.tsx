@@ -1,7 +1,6 @@
 "use client";
 
 import * as React from "react";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Loader2 } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
@@ -11,8 +10,40 @@ import { Label } from "@/components/ui/label";
 
 type Mode = "sign-in" | "sign-up";
 
+/**
+ * Turn whatever the auth client gives us into something a person can act on.
+ *
+ * Better Auth surfaces some failures as a returned `error` object and others as
+ * a thrown exception, and the raw codes ("EMAIL_NOT_VERIFIED") are not useful to
+ * a user. This is the one place that mapping lives.
+ */
+function describeAuthError(error: unknown): string {
+  const record =
+    typeof error === "object" && error !== null
+      ? (error as { code?: string; status?: number; message?: string })
+      : {};
+
+  switch (record.code) {
+    case "EMAIL_NOT_VERIFIED":
+      return "Check your inbox — you need to verify your email address before signing in.";
+    case "INVALID_EMAIL_OR_PASSWORD":
+    case "INVALID_CREDENTIALS":
+      return "That email and password don't match an account.";
+    case "USER_ALREADY_EXISTS":
+      return "An account with that email already exists. Try signing in instead.";
+    case "PASSWORD_TOO_SHORT":
+      return "Password must be at least 8 characters.";
+  }
+
+  if (record.status === 401 || record.status === 403) {
+    return record.message || "That didn't work. Check your details and try again.";
+  }
+  if (record.message) return record.message;
+
+  return "Couldn't reach the server. Check your connection and try again.";
+}
+
 export function AuthForm({ mode }: { mode: Mode }) {
-  const router = useRouter();
   const isSignUp = mode === "sign-up";
 
   const [name, setName] = React.useState("");
@@ -37,14 +68,18 @@ export function AuthForm({ mode }: { mode: Mode }) {
         : await authClient.signIn.email({ email, password });
 
       if (result.error) {
-        setError(result.error.message ?? "That didn't work. Please try again.");
+        setError(describeAuthError(result.error));
+        setPending(false);
         return;
       }
-      router.push("/");
-      router.refresh();
-    } catch {
-      setError("Couldn't reach the server. Check your connection and try again.");
-    } finally {
+
+      // A full page load, not router.push: the sign-in response sets the session
+      // cookie, and a hard navigation guarantees the server sees it on the very
+      // next request. A client-side transition can race the cookie write and
+      // bounce the user straight back to this page.
+      window.location.assign("/");
+    } catch (caught) {
+      setError(describeAuthError(caught));
       setPending(false);
     }
   }
