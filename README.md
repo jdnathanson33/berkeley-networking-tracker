@@ -2,7 +2,7 @@
 
 A private contact tracker for the people you want to stay connected with at Berkeley. Each signed-in user gets their own list — add someone with their company, role, where you met, free-form notes, and a high/medium/low priority, then sort and filter to find them again. The interesting part is not the CRUD; it's that a user's rows are isolated from every other user's by **Row Level Security inside Postgres itself**, not by a `WHERE` clause in application code. The database extracts the caller's identity from a signed JWT and filters rows before any query returns, so even a caller who bypasses this app entirely and hits the public Data API directly can only ever see their own data.
 
-**Live app: <!-- LIVE_URL -->**
+**Live app: https://berkeley-networking-tracker-jd-mba.vercel.app**
 
 ---
 
@@ -25,7 +25,16 @@ A private contact tracker for the people you want to stay connected with at Berk
 
 ## Screenshots
 
-<!-- SCREENSHOTS -->
+| | |
+|---|---|
+| **Sign in** — signed-out visitors never receive contact UI | **Your contacts** — sortable, filterable, searchable |
+| ![Sign in](docs/screenshots/01-sign-in.png) | ![Contact list](docs/screenshots/02-contacts-list.png) |
+| **Add a contact** — one dialog for create and edit | **Invalid input** — the server rejected it, and said why |
+| ![Add a contact](docs/screenshots/03-add-contact.png) | ![Validation error](docs/screenshots/04-validation-error.png) |
+
+**On a phone**, the table becomes cards:
+
+<img src="docs/screenshots/05-mobile.png" alt="Mobile card layout" width="320">
 
 ---
 
@@ -144,7 +153,7 @@ Take "JD edits a contact's priority to `low`."
 Requires Node.js 20 or newer.
 
 ```bash
-git clone <!-- REPO_URL -->
+git clone https://github.com/jdnathanson33/berkeley-networking-tracker.git
 cd berkeley-networking-tracker
 npm install
 
@@ -301,7 +310,17 @@ Imports the real `POST /api/contacts` handler with the database mocked, and asse
 - A valid contact → `201`, and the row sent upstream **contains no `user_id`** — proving the app relies on the database's `auth.user_id()` default rather than stamping ownership itself
 - A client that maliciously includes `"user_id": "somebody_else"` has it stripped before the insert
 
-<!-- TEST_OUTPUT -->
+Latest run — full output is in [Grading evidence](#grading-evidence):
+
+```console
+$ npm test
+
+ ✓ tests/validation.test.ts    (25 tests)
+ ✓ tests/api-contract.test.ts  ( 5 tests)
+
+ Test Files  2 passed (2)
+      Tests  30 passed (30)
+```
 
 ---
 
@@ -325,7 +344,220 @@ Subsequent pushes to `main` deploy automatically.
 
 ## Grading evidence
 
-<!-- EVIDENCE -->
+Every artifact below was captured against the **deployed production application**, not a local dev server.
+
+### Reproduce it yourself
+
+The two seeded accounts below are disposable, exist only for grading, and hold nothing real:
+
+| | Email | Password | Owns |
+| --- | --- | --- | --- |
+| **User A** | `alice.tester@example.com` | `AliceTest2026!` | contacts `1`–`5` |
+| **User B** | `bob.tester@example.com` | `BobTest2026!` | contact `7` |
+
+Open the [live app](https://berkeley-networking-tracker-jd-mba.vercel.app) in two private browser windows, sign in as A in one and B in the other, and confirm neither can see the other's list. To repeat the direct-database attack from §6b, sign in as B, open the browser console, and run:
+
+```js
+const { token } = await (await fetch("/api/auth/token")).json();
+const DATA_API = "https://ep-sweet-butterfly-aronf3em.apirest.c-4.us-west-2.aws.neon.tech/neondb/rest/v1";
+await (await fetch(DATA_API + "/contacts?id=eq.1&select=*", {
+  headers: { Authorization: "Bearer " + token }
+})).json();   // → []  — contact 1 exists and belongs to A, but B cannot see it
+```
+
+### 1. Automated test output
+
+```console
+$ npm test
+
+ RUN  v3.2.7
+
+ ✓ tests/validation.test.ts > contactInputSchema — required name > rejects an empty name
+ ✓ tests/validation.test.ts > contactInputSchema — required name > rejects a name that is only whitespace
+ ✓ tests/validation.test.ts > contactInputSchema — required name > rejects a missing name
+ ✓ tests/validation.test.ts > contactInputSchema — required name > trims surrounding whitespace from a valid name
+ ✓ tests/validation.test.ts > contactInputSchema — required name > rejects a name longer than 120 characters
+ ✓ tests/validation.test.ts > contactInputSchema — priority is one of three values > accepts high
+ ✓ tests/validation.test.ts > contactInputSchema — priority is one of three values > accepts medium
+ ✓ tests/validation.test.ts > contactInputSchema — priority is one of three values > accepts low
+ ✓ tests/validation.test.ts > contactInputSchema — priority is one of three values > rejects 'urgent'
+ ✓ tests/validation.test.ts > contactInputSchema — priority is one of three values > rejects 'HIGH'
+ ✓ tests/validation.test.ts > contactInputSchema — priority is one of three values > rejects ''
+ ✓ tests/validation.test.ts > contactInputSchema — priority is one of three values > rejects '1'
+ ✓ tests/validation.test.ts > contactInputSchema — priority is one of three values > rejects 'critical'
+ ✓ tests/validation.test.ts > contactInputSchema — priority is one of three values > gives a message that names the three allowed values
+ ✓ tests/validation.test.ts > contactInputSchema — priority is one of three values > rejects a missing priority
+ ✓ tests/validation.test.ts > contactInputSchema — priority is one of three values > rejects a non-string priority
+ ✓ tests/validation.test.ts > contactInputSchema — optional fields > accepts a contact with only a name and a priority
+ ✓ tests/validation.test.ts > contactInputSchema — optional fields > normalises blank optional fields to null rather than empty strings
+ ✓ tests/validation.test.ts > contactInputSchema — optional fields > rejects notes longer than 2000 characters
+ ✓ tests/validation.test.ts > contactUpdateSchema > accepts a single-field edit
+ ✓ tests/validation.test.ts > contactUpdateSchema > rejects an empty update
+ ✓ tests/validation.test.ts > contactUpdateSchema > still rejects a blank name on edit
+ ✓ tests/validation.test.ts > contactUpdateSchema > still rejects an invalid priority on edit
+ ✓ tests/validation.test.ts > query-parameter whitelists > falls back to created_at for an unknown sort field
+ ✓ tests/validation.test.ts > query-parameter whitelists > ignores an unknown priority filter instead of passing it through
+ ✓ tests/api-contract.test.ts > POST /api/contacts > returns 401 and never queries the database when signed out
+ ✓ tests/api-contract.test.ts > POST /api/contacts > returns 400 with a clear message for an empty name
+ ✓ tests/api-contract.test.ts > POST /api/contacts > returns 400 with a clear message for an invalid priority
+ ✓ tests/api-contract.test.ts > POST /api/contacts > creates a contact and does not send user_id upstream
+ ✓ tests/api-contract.test.ts > POST /api/contacts > ignores a user_id a malicious client tries to inject
+
+ Test Files  2 passed (2)
+      Tests  30 passed (30)
+```
+
+### 2. RLS is enabled, with four separate policies
+
+Run in the Neon SQL Editor against the production branch:
+
+```sql
+select relname, relrowsecurity as rls_enabled, relforcerowsecurity as forced
+from pg_class where relname = 'contacts';
+```
+
+| relname | rls_enabled | forced |
+| --- | --- | --- |
+| contacts | `true` | `true` |
+
+```sql
+select policyname, cmd, roles::text, qual as using_expr, with_check as check_expr
+from pg_policies where tablename = 'contacts' order by cmd;
+```
+
+| policyname | cmd | roles | using_expr | check_expr |
+| --- | --- | --- | --- | --- |
+| `contacts_delete_own` | DELETE | `{authenticated}` | `(auth.user_id() = user_id)` | — |
+| `contacts_insert_own` | INSERT | `{authenticated}` | — | `(auth.user_id() = user_id)` |
+| `contacts_select_own` | SELECT | `{authenticated}` | `(auth.user_id() = user_id)` | — |
+| `contacts_update_own` | UPDATE | `{authenticated}` | `(auth.user_id() = user_id)` | `(auth.user_id() = user_id)` |
+
+Note that `contacts_update_own` is the only policy carrying **both** clauses — `USING` to stop you editing someone else's row, `WITH CHECK` to stop you handing your own row to someone else.
+
+### 3. Sign-in and sign-out
+
+![Sign in](docs/screenshots/01-sign-in.png)
+
+Signed out, the app never renders contact UI at all. `app/page.tsx` is a Server Component that calls `getSessionUser()` and redirects before returning markup, and the API refuses independently:
+
+```console
+POST /api/auth/sign-out          → 200  {"success":true}
+GET  /api/contacts  (no session) → 401  {"error":"You need to be signed in."}
+```
+
+### 4. Create, edit, delete, sort, filter — and survive a refresh
+
+![Contact list](docs/screenshots/02-contacts-list.png)
+![Add a contact](docs/screenshots/03-add-contact.png)
+
+Captured live in production as User A:
+
+```console
+POST   /api/contacts                              → 201  contact created, id 1..5
+PATCH  /api/contacts/2   {"priority":"low"}       → 200  priority now "low", updated_at advanced
+DELETE /api/contacts/6                            → 200  {"deleted":6}
+GET    /api/contacts?priority=high&sort=name&dir=asc → 200  1 of 5 rows returned
+GET    /api/contacts?q=haas                       → 200  2 rows (matched company and where_met)
+GET    /api/contacts?sort=name;drop%20table%20contacts → 200  sort silently falls back to created_at
+```
+
+The list survives a hard browser refresh because nothing is held in component state across loads — the page refetches from Neon Postgres on every mount. The screenshot above was taken after a full reload.
+
+### 5. Invalid input fails safely, with a clear message
+
+![Validation error](docs/screenshots/04-validation-error.png)
+
+The message in that screenshot is not generated by the browser. The form submits, the server rejects the payload, and the response body drives the message:
+
+```console
+POST /api/contacts  {"name":"   ","priority":"high"}
+  → 400  {"error":"Name is required.","fieldErrors":{"name":"Name is required."}}
+
+POST /api/contacts  {"name":"Test Person","priority":"urgent"}
+  → 400  {"error":"Priority must be one of: high, medium, low.",
+           "fieldErrors":{"priority":"Priority must be one of: high, medium, low."}}
+
+PATCH /api/contacts/2  {"name":"   "}
+  → 400  {"error":"Name is required.","fieldErrors":{"name":"Name is required."}}
+```
+
+Nothing 500s, nothing leaks a database error, and each response names the field at fault.
+
+### 6. Two-account privacy test
+
+Two accounts on the production deployment:
+
+| Account | Email | Owns |
+| --- | --- | --- |
+| **User A** | `alice.tester@example.com` | contacts `1`–`5` |
+| **User B** | `bob.tester@example.com` | contact `7` |
+
+**6a. Through the application API, signed in as User B:**
+
+```console
+GET    /api/contacts             → 200  {"contacts":[]}          A's five rows are invisible
+GET    /api/contacts?sort=name   → 200  {"contacts":[]}          no ordering trick reveals them
+PATCH  /api/contacts/1           → 404  "That contact doesn't exist, or isn't yours."
+DELETE /api/contacts/1           → 404  "That contact doesn't exist, or isn't yours."
+PATCH  /api/contacts/1  {"user_id":"bob"}
+                                 → 400  field not accepted by the update schema
+POST   /api/contacts             → 201  B's own row, stamped with B's user_id
+GET    /api/contacts             → 200  exactly one row: B's own
+```
+
+**6b. Bypassing the application entirely.** This is the test that matters, because the Data API URL is public and a determined user can call it straight from the browser console. Here is User B's own JWT, sent directly to Neon with no application code in the request path:
+
+```console
+GET    …/rest/v1/contacts?select=*        → 200  [ only B's row ]
+GET    …/rest/v1/contacts?id=eq.1         → 200  []        A's row is invisible, not merely forbidden
+PATCH  …/rest/v1/contacts?id=eq.1         → 200  []        zero rows matched — nothing was changed
+DELETE …/rest/v1/contacts?id=eq.1         → 200  []        zero rows matched — nothing was deleted
+POST   …/rest/v1/contacts
+       {"name":"Planted","user_id":"<A's id>"}
+                                          → 403  {"code":"42501",
+                                                   "message":"new row violates row-level
+                                                    security policy for table \"contacts\""}
+GET    …/rest/v1/contacts   (no token)    → 400  "missing authentication credentials"
+```
+
+**6c. Confirmed in the database afterwards**, querying as the owner so all rows are visible:
+
+```sql
+select c.id, c.name, c.priority, u.email as owner
+from public.contacts c join neon_auth."user" u on u.id::text = c.user_id
+order by c.id;
+```
+
+| id | name | priority | owner |
+| --- | --- | --- | --- |
+| 1 | Priya Raman | high | alice.tester@example.com |
+| 2 | Marcus Webb | low | alice.tester@example.com |
+| 3 | Dr. Elena Sorokina | medium | alice.tester@example.com |
+| 4 | Tomas Herrera | medium | alice.tester@example.com |
+| 5 | Nina Patel | low | alice.tester@example.com |
+| 7 | Bob's Own Contact | medium | bob.tester@example.com |
+
+Row 1 is still `Priya Raman / high` after User B's direct `PATCH` and `DELETE`. No planted row exists. **Row Level Security held with zero application code in the request path** — which is the whole point of putting authorization in the database.
+
+*(Contact 6 is absent because User A deleted it during the CRUD test above.)*
+
+### 7. Mobile layout
+
+![Mobile layout](docs/screenshots/05-mobile.png)
+
+Below the `md` breakpoint the table is replaced by cards, because a five-column table on a 390px screen is not usable. The dialog also becomes a bottom sheet with its own scroll region rather than a centred modal that overflows the viewport.
+
+### 8. No secrets in the repository
+
+- `.gitignore` ignores `.env*`, then re-includes `.env.example` with `!.env.example`, so the template is committed and real values never are.
+- The only environment file in Git is [`.env.example`](.env.example), which contains placeholders.
+- `DATABASE_URL` and `NEON_AUTH_COOKIE_SECRET` carry no `NEXT_PUBLIC_` prefix, so Next.js cannot inline them into a client bundle, and no `"use client"` module imports `lib/auth-server.ts`.
+- Verify for yourself:
+
+```bash
+git log -p --all | grep -E "postgresql://|NEON_AUTH_COOKIE_SECRET=[a-f0-9]{32}"   # no output
+git ls-files | grep "^\.env"                                                      # .env.example only
+```
 
 ---
 
@@ -333,7 +565,8 @@ Subsequent pushes to `main` deploy automatically.
 
 **Limitations**
 
-- **Email verification is off.** Sign-up grants immediate access without confirming the address. Fine for a graded exercise; not acceptable for a real product, where an unverified address is an account-takeover vector.
+- **Email verification is deliberately off.** Neon Auth enables it by default; I turned it off in the Auth configuration because a grader creating a throwaway account would otherwise be locked out at first sign-in with `403 EMAIL_NOT_VERIFIED`, and this project has no custom sending domain. It is the correct call for a graded exercise and the wrong one for a real product: an unverified address means anyone can register under someone else's email, which is an account-takeover vector. Turning it back on is a single toggle plus a real transactional email provider.
+- **Two demo accounts with published passwords ship in this README.** That is appropriate for a graded artifact whose whole point is proving isolation, and would be indefensible in a live product. They should be deleted after grading.
 - **Search is a `LIKE` scan.** `ilike` across four columns is fine at the scale one person's network reaches, but it does not rank results and will not use an index. Postgres full-text search with a `tsvector` column would be the fix.
 - **No pagination.** Every matching contact is fetched at once. Past a few hundred rows this becomes a noticeable payload.
 - **No optimistic UI.** Every mutation waits for the round trip before the list updates. Correct, but it feels slower than it needs to.
